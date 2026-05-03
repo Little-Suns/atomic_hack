@@ -1,8 +1,6 @@
 import random
 import asyncio
 from typing import List, Dict, Any
-import os
-import io
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Body
 from sqlalchemy.orm import Session, selectinload

@@ -1,34 +1,23 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
 import FileUpload from '../components/FileUpload'
 import SlideEditor from '../components/SlideEditor'
 import PresentationPreview from '../components/PresentationPreview'
 import Header from '../components/Header'
 import { FileText, AlertCircle, Loader2 } from 'lucide-react'
 import api from '../services/api'
-import axios from 'axios'
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export interface SlideTitle {
   id: string
   title: string
-  description?: string // Описание слайда от API
+  description?: string // Slide description from API
   order: number
-  contentJson?: string // Структурированный JSON контент слайда
-  generated?: boolean // Флаг что контент сгенерирован
-  isRegenerating?: boolean // Флаг что слайд перегенерируется прямо сейчас
-}
-
-export interface UploadedFile {
-  name: string
-  size: number
-  type: string
+  contentJson?: string // Structured JSON slide content
+  generated?: boolean // Indicates generated content is ready
+  isRegenerating?: boolean // Indicates this slide is being regenerated now
 }
 
 const MainPage: React.FC = () => {
-  const { /* user */ } = useAuth()
   const [searchParams] = useSearchParams()
   const [presentationTitle, setPresentationTitle] = useState<string>('')
   const [slideCount, setSlideCount] = useState<number>(5)
@@ -43,7 +32,7 @@ const MainPage: React.FC = () => {
   const [hasRagCollection, setHasRagCollection] = useState(false)
   const pollingIntervalRef = useRef<number | null>(null)
 
-  // Загрузка презентации из URL параметра
+  // Load presentation from URL query param.
   useEffect(() => {
     const presentationIdParam = searchParams.get('presentation')
     if (presentationIdParam) {
@@ -54,7 +43,7 @@ const MainPage: React.FC = () => {
     }
   }, [searchParams])
 
-  // Очистка интервалов и таймеров при размонтировании компонента
+  // Cleanup intervals/timeouts on unmount.
   useEffect(() => {
     return () => {
       if (pollingIntervalRef.current) {
@@ -74,9 +63,9 @@ const MainPage: React.FC = () => {
   const [isUploadingFiles, setIsUploadingFiles] = useState(false)
   const [isSavingTitle, setIsSavingTitle] = useState(false)
 
-  // Функция для определения измененных слайдов
+  // Detect slides changed since the last generated snapshot.
   const getModifiedSlides = (): number[] => {
-    if (originalSlides.length === 0) return [] // Нет снимка - нет изменений
+    if (originalSlides.length === 0) return []
     
     const modifiedPositions: number[] = []
     
@@ -405,8 +394,7 @@ const MainPage: React.FC = () => {
           pollAttempts++
           
           // Получаем текущие готовые контент слайдов (объекты с Title/Content от API)
-          const resp = await axios.get(`${API_BASE_URL}/api/getContent?presId=${presentationId}`)
-          const data = Array.isArray(resp.data) ? resp.data : []
+          const data = await api.getContent(presentationId)
 
           const normalize = (s: string) => (s || '')
             .toLowerCase()
@@ -578,8 +566,7 @@ const MainPage: React.FC = () => {
       const pollInterval = setInterval(async () => {
         try {
           attempts++
-          const resp = await axios.get(`${API_BASE_URL}/api/getContent?presId=${presentationId}`)
-          const data = Array.isArray(resp.data) ? resp.data : []
+          const data = await api.getContent(presentationId)
 
           const normalize = (s: string) => (s || '')
             .toLowerCase()
@@ -676,8 +663,7 @@ const MainPage: React.FC = () => {
           pollAttempts++
 
           // Получаем текущие готовые контент слайдов (формат [{Title, Content}])
-          const resp = await axios.get(`${API_BASE_URL}/api/getContent?presId=${presentationId}`)
-          const data = Array.isArray(resp.data) ? resp.data : []
+          const data = await api.getContent(presentationId)
 
           const normalize = (s: string) => (s || '')
             .toLowerCase()

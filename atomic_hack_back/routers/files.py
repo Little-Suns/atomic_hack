@@ -1,62 +1,40 @@
-import asyncio
 import io
 import os
 import uuid
 import logging
-from boto3.s3.transfer import TransferConfig
 
 try:
     import boto3  # type: ignore[import]
-    from botocore.config import Config  # type: ignore[import]
-    from botocore.exceptions import BotoCoreError, ClientError  # type: ignore[import]
 except ImportError:  # pragma: no cover
     boto3 = None  # type: ignore[assignment]
-    Config = None  # type: ignore[assignment]
-    class _BotocoreUnavailable(Exception):
-        """Fallback exception when botocore is missing."""
-
-    BotoCoreError = ClientError = _BotocoreUnavailable  # type: ignore[misc,assignment]
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
 from sqlalchemy.orm import Session
 from database import get_db
 from models.presentation import Presentation
-from models.slide import Slide
 from services.s3_service import check_s3_configuration, test_s3_connection, upload_bytes_to_s3
-from services.pptx_html import pptx_to_html
 
 logger = logging.getLogger("app.files")
 
 router = APIRouter()
 
-GB = 1024 ** 3
-config = TransferConfig(multipart_threshold=5*GB)
-
 
 def sanitize_filename(filename: str) -> str:
     """
-    Создаёт безопасное имя файла, удаляя проблемные символы и заменяя пробелы на подчеркивания
+    Build a safe filename by removing problematic characters.
     """
     import re
-    # Заменяем пробелы на подчеркивания
+
     safe_name = filename.replace(' ', '_')
-    # Заменяем все небезопасные символы на подчеркивание
     safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', safe_name)
-    # Убираем множественные подчеркивания
     safe_name = re.sub(r'_+', '_', safe_name)
-    # Убираем подчеркивания в начале и конце
     safe_name = safe_name.strip('_')
-    # Если имя пустое, используем дефолтное
     if not safe_name:
         safe_name = 'presentation'
     return safe_name
 _S3_BUCKET_NAME = os.getenv("TEMPLATE_BUCKET_NAME")
-_S3_REGION = os.getenv("AWS_REGION")
 _S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
 _S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID")
 _S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY")
-_S3_SESSION_TOKEN = os.getenv("S3_SESSION_TOKEN")
-_S3_ADDRESSING_STYLE = os.getenv("S3_ADDRESSING_STYLE", "auto")
-_S3_USE_SSL = os.getenv("S3_USE_SSL", "true").lower() != "false"
 
 os.environ.setdefault("AWS_CHUNKED_ENCODING_DISABLED", "true")
 
@@ -81,39 +59,6 @@ def _ensure_storage_configuration() -> None:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Storage configuration missing environment variables: {', '.join(missing_vars)}",
         )
-
-
-def _get_s3_client():
-    try:
-        
-
-
-        session = boto3.session.Session(
-            aws_access_key_id=_S3_ACCESS_KEY_ID,
-            aws_secret_access_key=_S3_SECRET_ACCESS_KEY,
-            aws_session_token=_S3_SESSION_TOKEN,
-            region_name=_S3_REGION,
-        )
-        config_kwargs = {
-            "signature_version": "s3v4",
-            "s3": {"payload_signing_enabled": False},
-        }
-        if _S3_ADDRESSING_STYLE:
-            config_kwargs["s3"]["addressing_style"] = _S3_ADDRESSING_STYLE
-        client_kwargs = {
-            "endpoint_url": _S3_ENDPOINT_URL,
-            "use_ssl": _S3_USE_SSL
-        }
-        if Config is not None:
-            client_kwargs["config"] = Config(**config_kwargs)
-        return session.client("s3", **client_kwargs)
-    except (BotoCoreError, ClientError) as exc:  # pragma: no cover
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to initialize storage client: {exc}",
-        ) from exc
-
-
 def _validate_pptx(file: UploadFile) -> None:
     if not file.filename.lower().endswith(".pptx"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only .pptx files are supported")
